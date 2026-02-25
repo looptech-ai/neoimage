@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.mcp.json
+*.png
+*.jpg
+*.jpeg
+*.webp
+.DS_Store
