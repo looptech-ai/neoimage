@@ -2,6 +2,10 @@
 Image Generation MCP Server
 
 Provides tools for generating images using Google Gemini and OpenAI APIs.
+
+Gemini tool uses Nano Banana 2 (gemini-3.1-flash-image-preview) by default —
+Google's latest image generation model with 4K resolution, expanded aspect ratios,
+character consistency for up to 5 characters, and optional thinking mode.
 """
 
 import base64
@@ -27,35 +31,74 @@ def generate_output_path(prefix: str, extension: str = "png") -> str:
 @mcp.tool()
 async def generate_image_gemini(
     prompt: str,
-    model: Literal["gemini-2.5-flash-image", "gemini-3-pro-image-preview"] = "gemini-2.5-flash-image",
-    aspect_ratio: Literal["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"] = "1:1",
-    resolution: Literal["1K", "2K", "4K"] | None = None,
+    model: Literal[
+        "gemini-3.1-flash-image-preview",
+        "gemini-2.5-flash-image",
+        "gemini-3-pro-image-preview",
+    ] = "gemini-3.1-flash-image-preview",
+    aspect_ratio: Literal[
+        "1:1",
+        "2:3", "3:2",
+        "3:4", "4:3",
+        "4:5", "5:4",
+        "9:16", "16:9",
+        "21:9",
+        "4:1", "1:4",
+        "8:1", "1:8",
+    ] = "1:1",
+    image_size: Literal["512px", "1K", "2K", "4K"] | None = None,
+    thinking_level: Literal["minimal", "high"] | None = None,
     output_path: str | None = None,
 ) -> dict:
     """
-    Generate an image using Google Gemini API. Powered by Google's Imagen model.
+    Generate an image using Google Gemini API (Nano Banana 2 by default).
+
+    Default model is gemini-3.1-flash-image-preview (Nano Banana 2), released Feb 2026.
+    It combines the quality of Nano Banana Pro with the speed of Gemini Flash.
 
     OUTPUT LOCATION: Images save to current working directory by default with auto-generated
     names like "gemini_20240126_143052_a1b2c3d4.png". Use output_path for custom location.
 
-    MODELS (Google Gemini/Imagen):
-    - gemini-2.5-flash-image (default): Fast generation, optimized for speed and efficiency
-    - gemini-3-pro-image-preview: Professional quality, best for final/production assets
+    MODELS:
+    - gemini-3.1-flash-image-preview (default): Nano Banana 2 — fastest + highest quality,
+      4K resolution, character consistency for up to 5 characters, 14-object fidelity,
+      expanded aspect ratios, advanced text rendering, optional thinking mode
+    - gemini-2.5-flash-image: Previous generation (Nano Banana 1), max 2K
+    - gemini-3-pro-image-preview: Pro-tier quality for production assets
 
-    ASPECT RATIOS: 1:1 (square), 16:9 (widescreen), 9:16 (portrait/mobile), 21:9 (ultrawide),
-    4:3/3:4 (standard), 3:2/2:3 (photo), 5:4/4:5 (large format)
+    ASPECT RATIOS (Nano Banana 2 adds ultra-wide/tall):
+    - Square: 1:1
+    - Landscape: 3:2, 4:3, 5:4, 16:9, 21:9
+    - Portrait: 2:3, 3:4, 4:5, 9:16
+    - Ultra-wide (NB2 only): 4:1, 8:1
+    - Ultra-tall (NB2 only): 1:4, 1:8
 
-    RESOLUTION: 1K (fastest), 2K (balanced), 4K (highest quality) - must be uppercase
+    IMAGE SIZE (Nano Banana 2):
+    - 512px: Minimum, fastest (~3-8s)
+    - 1K: Default if not specified (~5-10s)
+    - 2K: Balanced quality (~10-15s)
+    - 4K: Maximum resolution (~15-25s)
+
+    THINKING MODE (Nano Banana 2 only):
+    - minimal (default when enabled): Light reasoning pass, small quality boost
+    - high: Deep reasoning, best for complex scenes or precise compositions
 
     Args:
         prompt: Text description of the image to generate. Be descriptive for best results.
-        model: Which Gemini model - gemini-2.5-flash-image for speed, gemini-3-pro-image-preview for quality
-        aspect_ratio: Output dimensions ratio - use 16:9 for desktop, 9:16 for phone, 1:1 for social
-        resolution: Output resolution - 1K/2K/4K (uppercase required). None for model default.
+            For Nano Banana 2, you can describe up to 5 characters with consistent appearance
+            and up to 14 distinct objects.
+        model: Gemini model to use. Defaults to gemini-3.1-flash-image-preview (Nano Banana 2).
+        aspect_ratio: Output dimensions ratio. 4:1/8:1/1:4/1:8 require Nano Banana 2.
+        image_size: Output resolution (512px/1K/2K/4K). None uses the model default (1K).
+            4K adds significant latency; use for final/hero images only.
+        thinking_level: Enable thinking mode for Nano Banana 2 (minimal or high).
+            Improves composition and instruction-following at the cost of latency.
+            Only supported by gemini-3.1-flash-image-preview; ignored for other models.
         output_path: Full path to save image (e.g., "/path/to/image.png"). Auto-generates if not provided.
 
     Returns:
-        Dictionary with file_path (absolute path to saved image), model, aspect_ratio, resolution, prompt, and any text_response
+        Dictionary with file_path (absolute path to saved image), model, aspect_ratio,
+        image_size, thinking_level, prompt, and any text_response from the model.
     """
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
@@ -75,16 +118,26 @@ async def generate_image_gemini(
         },
     }
 
-    # Build imageConfig with aspect ratio and resolution
+    # Build imageConfig with aspect ratio and image size
     image_config = {}
     if aspect_ratio != "1:1":
         image_config["aspectRatio"] = aspect_ratio
-    if resolution:
-        image_config["resolution"] = resolution
+    if image_size:
+        image_config["imageSize"] = image_size
     if image_config:
         body["generationConfig"]["imageConfig"] = image_config
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    # Thinking mode — Nano Banana 2 (gemini-3.1-flash-image-preview) only
+    if thinking_level and model == "gemini-3.1-flash-image-preview":
+        body["generationConfig"]["thinkingConfig"] = {
+            "thinkingLevel": thinking_level,
+            "includeThoughts": False,
+        }
+
+    # 4K + thinking mode can take up to 25s; use a generous timeout
+    timeout = 300.0 if image_size == "4K" else 120.0
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(url, headers=headers, json=body)
 
         if response.status_code != 200:
@@ -125,7 +178,8 @@ async def generate_image_gemini(
         "file_path": os.path.abspath(output_path),
         "model": model,
         "aspect_ratio": aspect_ratio,
-        "resolution": resolution,
+        "image_size": image_size,
+        "thinking_level": thinking_level,
         "prompt": prompt,
         "text_response": text_response,
     }

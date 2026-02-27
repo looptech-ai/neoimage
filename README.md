@@ -5,14 +5,15 @@ An MCP server for AI image generation, providing Claude Code and other MCP-compa
 ## Tools
 
 ### `generate_image_gemini`
-Generate images using Google's Gemini / Imagen models.
+Generate images using Google's Gemini / Imagen models. Defaults to **Nano Banana 2** (`gemini-3.1-flash-image-preview`), Google's latest image model with 4K support, character consistency, and thinking mode.
 
 | Parameter | Options | Default | Notes |
 |---|---|---|---|
-| `prompt` | string | required | Describe the image you want |
-| `model` | `gemini-2.5-flash-image` · `gemini-3-pro-image-preview` | `gemini-2.5-flash-image` | Use pro for production-quality assets |
-| `aspect_ratio` | `1:1` · `16:9` · `9:16` · `4:3` · `3:4` · `3:2` · `2:3` · `5:4` · `4:5` · `21:9` | `1:1` | Use `16:9` for slides/desktop |
-| `resolution` | `1K` · `2K` · `4K` | model default | Must be uppercase |
+| `prompt` | string | required | Describe the image you want. NB2 supports up to 5 consistent characters and 14 objects. |
+| `model` | `gemini-3.1-flash-image-preview` · `gemini-2.5-flash-image` · `gemini-3-pro-image-preview` | `gemini-3.1-flash-image-preview` | NB2 (default) is fastest + highest quality. Use pro for production assets. |
+| `aspect_ratio` | `1:1` · `16:9` · `9:16` · `4:3` · `3:4` · `3:2` · `2:3` · `5:4` · `4:5` · `21:9` · `4:1` · `1:4` · `8:1` · `1:8` | `1:1` | Ultra-wide/tall ratios (`4:1`, `8:1`, `1:4`, `1:8`) require NB2 |
+| `image_size` | `512px` · `1K` · `2K` · `4K` | model default (1K) | `4K` adds latency (~15-25s); `512px` is fastest (~3-8s) |
+| `thinking_level` | `minimal` · `high` | none | NB2 only. Improves composition at the cost of latency. |
 | `output_path` | string | auto-generated | Full path e.g. `/tmp/my-image.png` |
 
 ### `generate_image_openai`
@@ -86,7 +87,7 @@ Edit the file:
 In Claude Code, you should see `neoimage` listed as an available MCP server. Try:
 
 ```
-Generate a 16:9 dark slide background using gemini-3-pro-image-preview
+Generate a 16:9 dark slide background at 2K resolution
 ```
 
 ---
@@ -104,8 +105,11 @@ save to /tmp/slide-q1.png
 
 ## Tips
 
-- **Presentation slides**: `gemini-3-pro-image-preview` + `aspect_ratio: 16:9`
-- **Quick drafts**: `gemini-2.5-flash-image` is significantly faster
+- **Best all-round**: `gemini-3.1-flash-image-preview` (Nano Banana 2, default) — fast + high quality
+- **Presentation slides**: `aspect_ratio: 16:9` with `image_size: 2K` or `4K`
+- **Complex compositions**: Add `thinking_level: high` for better instruction following
+- **Quick drafts**: `image_size: 512px` for fastest generation (~3-8s)
+- **Ultra-wide banners**: `aspect_ratio: 8:1` or `4:1` (NB2 only)
 - **Logos / icons with transparency**: `generate_image_openai` with `background: transparent`, `format: png`
 - **High-detail illustrations**: `gpt-image-1.5` with `quality: high`
 - Generated images save to the **current working directory** unless you specify `output_path`
