@@ -1,11 +1,7 @@
 """
 Image Generation MCP Server
 
-Provides tools for generating images using Google Gemini and OpenAI APIs.
-
-Gemini tool uses Nano Banana 2 (gemini-3.1-flash-image-preview) by default —
-Google's latest image generation model with 4K resolution, expanded aspect ratios,
-character consistency for up to 5 characters, and optional thinking mode.
+Provides tools for generating images using Google Gemini, OpenAI, and xAI Grok APIs.
 """
 
 import base64
@@ -17,12 +13,10 @@ from typing import Literal
 import httpx
 from fastmcp import FastMCP
 
-# Initialize MCP server
 mcp = FastMCP("neoimage")
 
 
 def generate_output_path(prefix: str, extension: str = "png") -> str:
-    """Generate a unique output path for an image."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     unique_id = uuid.uuid4().hex[:8]
     return f"{prefix}_{timestamp}_{unique_id}.{extension}"
@@ -60,10 +54,11 @@ async def generate_image_gemini(
     names like "gemini_20240126_143052_a1b2c3d4.png". Use output_path for custom location.
 
     MODELS:
-    - gemini-3.1-flash-image-preview (default): Nano Banana 2 — fastest + highest quality,
+    - gemini-3.1-flash-image-preview (default): Nano Banana 2 -- fastest + highest quality,
       4K resolution, character consistency for up to 5 characters, 14-object fidelity,
       expanded aspect ratios, advanced text rendering, optional thinking mode
-    - gemini-2.5-flash-image: Previous generation (Nano Banana 1), max 2K
+    - gemini-2.5-flash-image: Previous generation (Nano Banana 1), max 2K.
+      WARNING: may be deprecated June 17, 2026 with the broader 2.5 Flash family.
     - gemini-3-pro-image-preview: Pro-tier quality for production assets
 
     ASPECT RATIOS (Nano Banana 2 adds ultra-wide/tall):
@@ -118,7 +113,6 @@ async def generate_image_gemini(
         },
     }
 
-    # Build imageConfig with aspect ratio and image size
     image_config = {}
     if aspect_ratio != "1:1":
         image_config["aspectRatio"] = aspect_ratio
@@ -127,14 +121,12 @@ async def generate_image_gemini(
     if image_config:
         body["generationConfig"]["imageConfig"] = image_config
 
-    # Thinking mode — Nano Banana 2 (gemini-3.1-flash-image-preview) only
     if thinking_level and model == "gemini-3.1-flash-image-preview":
         body["generationConfig"]["thinkingConfig"] = {
             "thinkingLevel": thinking_level,
             "includeThoughts": False,
         }
 
-    # 4K + thinking mode can take up to 25s; use a generous timeout
     timeout = 300.0 if image_size == "4K" else 120.0
 
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -146,7 +138,6 @@ async def generate_image_gemini(
 
         result = response.json()
 
-    # Extract image data from response
     candidates = result.get("candidates", [])
     if not candidates:
         raise ValueError("No candidates returned from Gemini API")
@@ -165,7 +156,6 @@ async def generate_image_gemini(
     if not image_data:
         raise ValueError(f"No image data in response. Text response: {text_response}")
 
-    # Decode and save image
     image_bytes = base64.b64decode(image_data)
 
     if output_path is None:
@@ -188,7 +178,9 @@ async def generate_image_gemini(
 @mcp.tool()
 async def generate_image_openai(
     prompt: str,
-    model: Literal["gpt-image-1", "gpt-image-1-mini", "gpt-image-1.5"] = "gpt-image-1",
+    model: Literal[
+        "gpt-image-2", "gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"
+    ] = "gpt-image-2",
     size: Literal["1024x1024", "1536x1024", "1024x1536", "auto"] = "1024x1024",
     format: Literal["png", "jpeg", "webp"] = "png",
     background: Literal["opaque", "transparent", "auto"] = "opaque",
@@ -196,15 +188,18 @@ async def generate_image_openai(
     output_path: str | None = None,
 ) -> dict:
     """
-    Generate an image using OpenAI's DALL-E / GPT Image API. Powered by OpenAI's image models.
+    Generate an image using OpenAI's GPT Image API.
 
     OUTPUT LOCATION: Images save to current working directory by default with auto-generated
     names like "openai_20240126_143052_a1b2c3d4.png". Use output_path for custom location.
 
-    MODELS (OpenAI):
-    - gpt-image-1 (default): Standard quality, good balance of speed and quality
-    - gpt-image-1-mini: Faster, lower cost, slightly reduced quality
-    - gpt-image-1.5: Highest quality, best for detailed/complex images
+    MODELS:
+    - gpt-image-2 (default): Flagship model (April 2026). ~2x faster than gpt-image-1,
+      ~99% text accuracy across Latin/CJK/Hindi/Bengali, supports arbitrary resolutions
+      (divisible by 16, aspect ratio 1:3 to 3:1, up to 3840x2160 experimental).
+    - gpt-image-1.5: ~4x faster than gpt-image-1, 20% cheaper, good text rendering
+    - gpt-image-1: Original model, deprecated October 23, 2026
+    - gpt-image-1-mini: Cost-efficient variant of gpt-image-1
 
     SIZES: 1024x1024 (square), 1536x1024 (landscape), 1024x1536 (portrait), auto (model decides)
 
@@ -214,15 +209,16 @@ async def generate_image_openai(
 
     Args:
         prompt: Text description of the image. OpenAI may revise your prompt for better results.
-        model: Which OpenAI model - use gpt-image-1.5 for quality, gpt-image-1-mini for speed
-        size: Pixel dimensions - 1536x1024 for landscape, 1024x1536 for portrait
-        format: Output format - png (lossless), jpeg (smaller), webp (modern/efficient)
-        background: Use transparent for logos/icons that need no background (PNG only)
+        model: Which OpenAI model. gpt-image-2 is the flagship.
+        size: Pixel dimensions.
+        format: Output format -- png (lossless), jpeg (smaller), webp (modern/efficient).
+        background: Use transparent for logos/icons that need no background (PNG only).
         quality: Higher quality = more detail but slower. Use high for important images.
         output_path: Full path to save image. Auto-generates if not provided.
 
     Returns:
-        Dictionary with file_path (absolute path), model, size, format, quality, prompt, and revised_prompt if modified
+        Dictionary with file_path (absolute path), model, size, format, quality, prompt,
+        and revised_prompt if modified by OpenAI.
     """
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -232,14 +228,12 @@ async def generate_image_openai(
 
     client = AsyncOpenAI(api_key=api_key)
 
-    # Build generation parameters
     params = {
         "model": model,
         "prompt": prompt,
         "n": 1,
     }
 
-    # Add optional parameters
     if size != "auto":
         params["size"] = size
     if quality != "auto":
@@ -252,16 +246,23 @@ async def generate_image_openai(
     if not response.data:
         raise ValueError("No image data returned from OpenAI API")
 
-    # Get image URL and download it
-    image_url = response.data[0].url
-    if not image_url:
-        raise ValueError("No image URL in response")
+    image_result = response.data[0]
 
-    async with httpx.AsyncClient(timeout=60.0) as http_client:
-        img_response = await http_client.get(image_url)
-        if img_response.status_code != 200:
-            raise ValueError(f"Failed to download image: {img_response.status_code}")
-        image_bytes = img_response.content
+    # GPT image models return base64 data; fall back to URL download for
+    # any future model that still uses URLs.
+    b64_data = getattr(image_result, "b64_json", None)
+    image_url = getattr(image_result, "url", None)
+
+    if b64_data:
+        image_bytes = base64.b64decode(b64_data)
+    elif image_url:
+        async with httpx.AsyncClient(timeout=60.0) as http_client:
+            img_response = await http_client.get(image_url)
+            if img_response.status_code != 200:
+                raise ValueError(f"Failed to download image: {img_response.status_code}")
+            image_bytes = img_response.content
+    else:
+        raise ValueError("No image data (b64_json or url) in response")
 
     if output_path is None:
         output_path = generate_output_path("openai", format)
@@ -277,7 +278,112 @@ async def generate_image_openai(
         "background": background,
         "quality": quality,
         "prompt": prompt,
-        "revised_prompt": getattr(response.data[0], "revised_prompt", None),
+        "revised_prompt": getattr(image_result, "revised_prompt", None),
+    }
+
+
+@mcp.tool()
+async def generate_image_grok(
+    prompt: str,
+    model: Literal[
+        "grok-imagine-image-quality", "grok-imagine-image"
+    ] = "grok-imagine-image-quality",
+    aspect_ratio: Literal[
+        "1:1",
+        "16:9", "9:16",
+        "4:3", "3:4",
+        "3:2", "2:3",
+        "2:1", "1:2",
+        "19.5:9", "9:19.5",
+        "20:9", "9:20",
+        "auto",
+    ] = "1:1",
+    resolution: Literal["1k", "2k"] = "1k",
+    output_path: str | None = None,
+) -> dict:
+    """
+    Generate an image using xAI's Grok Imagine API.
+
+    OUTPUT LOCATION: Images save to current working directory by default with auto-generated
+    names like "grok_20240126_143052_a1b2c3d4.png". Use output_path for custom location.
+
+    MODELS:
+    - grok-imagine-image-quality (default): High-quality tier ($0.05/image). Recommended
+      for production use. grok-imagine-image-pro is now an alias for this model.
+    - grok-imagine-image: Standard tier ($0.02/image). Faster, lower cost.
+
+    ASPECT RATIOS:
+    - Square: 1:1
+    - Landscape: 16:9, 4:3, 3:2, 2:1, 20:9, 19.5:9
+    - Portrait: 9:16, 3:4, 2:3, 1:2, 9:20, 9:19.5
+    - auto: Model decides based on prompt content
+
+    RESOLUTION: 1k (faster, default) or 2k (higher detail)
+
+    Args:
+        prompt: Text description of the image to generate.
+        model: Which Grok model -- quality tier or standard tier.
+        aspect_ratio: Output dimensions ratio. Use auto to let the model decide.
+        resolution: 1k or 2k output resolution.
+        output_path: Full path to save image. Auto-generates if not provided.
+
+    Returns:
+        Dictionary with file_path (absolute path), model, aspect_ratio, resolution, prompt.
+    """
+    api_key = os.environ.get("XAI_API_KEY")
+    if not api_key:
+        raise ValueError("XAI_API_KEY environment variable is not set")
+
+    url = "https://api.x.ai/v1/images/generations"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    body = {
+        "model": model,
+        "prompt": prompt,
+        "n": 1,
+        "response_format": "b64_json",
+    }
+
+    if aspect_ratio != "1:1":
+        body["aspect_ratio"] = aspect_ratio
+    if resolution != "1k":
+        body["resolution"] = resolution
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(url, headers=headers, json=body)
+
+        if response.status_code != 200:
+            error_detail = response.text
+            raise ValueError(f"Grok API error ({response.status_code}): {error_detail}")
+
+        result = response.json()
+
+    data = result.get("data", [])
+    if not data:
+        raise ValueError("No image data returned from Grok API")
+
+    b64_data = data[0].get("b64_json")
+    if not b64_data:
+        raise ValueError("No b64_json in Grok response")
+
+    image_bytes = base64.b64decode(b64_data)
+
+    if output_path is None:
+        output_path = generate_output_path("grok", "png")
+
+    with open(output_path, "wb") as f:
+        f.write(image_bytes)
+
+    return {
+        "file_path": os.path.abspath(output_path),
+        "model": model,
+        "aspect_ratio": aspect_ratio,
+        "resolution": resolution,
+        "prompt": prompt,
     }
 
 
