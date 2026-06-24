@@ -9,3 +9,4 @@ __pycache__/
 *.jpeg
 *.webp
 .DS_Store
+.pytest_cache/

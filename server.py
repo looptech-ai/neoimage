@@ -12,6 +12,10 @@ from typing import Literal
 
 import httpx
 from fastmcp import FastMCP
+from fastmcp.tools.tool import ToolResult
+from fastmcp.utilities.types import Image
+
+import image_edit
 
 mcp = FastMCP("neoimage")
 
@@ -385,6 +389,99 @@ async def generate_image_grok(
         "resolution": resolution,
         "prompt": prompt,
     }
+
+
+@mcp.tool()
+async def edit_image_gemini(
+    prompt: str,
+    input_images: list[str],
+    model: Literal[
+        "gemini-3.1-flash-image-preview",
+        "gemini-3-pro-image-preview",
+    ] = "gemini-3.1-flash-image-preview",
+    aspect_ratio: Literal[
+        "1:1",
+        "2:3", "3:2",
+        "3:4", "4:3",
+        "4:5", "5:4",
+        "9:16", "16:9",
+        "21:9",
+        "4:1", "1:4",
+        "8:1", "1:8",
+    ] = "1:1",
+    image_size: Literal["512px", "1K", "2K", "4K"] | None = None,
+    thinking_level: Literal["minimal", "high"] | None = None,
+    output_path: str | None = None,
+) -> ToolResult:
+    """
+    Edit, compose, or character-consistently re-render images with Google Gemini
+    (Nano Banana 2) using one or more REFERENCE IMAGES as input.
+
+    This is the image-to-image counterpart to generate_image_gemini. Where the
+    generator only takes text, this tool feeds existing images back into the model
+    so you can:
+    - EDIT a single image ("make the sky stormy", "remove the background")
+    - COMPOSE/FUSE several images ("put the product from image 1 onto the desk in image 2")
+    - keep a CHARACTER CONSISTENT across renders (pass up to 5 portraits of the same person)
+
+    Unlike the generation tools, this one RETURNS THE EDITED IMAGE to you directly
+    as a viewable image (not just a file path), so you can see the result and decide
+    whether to iterate -- closing the generate -> see -> edit loop.
+
+    Args:
+        prompt: Instruction describing the edit/composition to perform.
+        input_images: One or more paths to reference images (PNG/JPEG/WebP/GIF).
+            At least 1, at most 14. Use up to 5 images of the same subject for
+            character consistency.
+        model: Gemini image model. Defaults to Nano Banana 2.
+        aspect_ratio: Output dimensions ratio.
+        image_size: Output resolution (512px/1K/2K/4K). None uses the model default.
+        thinking_level: Enable thinking mode (Nano Banana 2 only).
+        output_path: Where to save the edited image. Auto-generated if not provided.
+
+    Returns:
+        A ToolResult whose content includes the edited image (viewable inline) and
+        whose structured metadata carries file_path, model, reference_count, the
+        prompt, and any text_response from the model.
+    """
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise ValueError("GOOGLE_API_KEY environment variable is not set")
+
+    result = await image_edit.gemini_edit(
+        prompt=prompt,
+        reference_paths=input_images,
+        api_key=api_key,
+        model=model,
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+        thinking_level=thinking_level,
+    )
+
+    if output_path is None:
+        output_path = generate_output_path("gemini_edit", "png")
+
+    try:
+        with open(output_path, "wb") as f:
+            f.write(result.image_bytes)
+    except OSError as e:
+        # Surface disk errors as ValueError, consistent with how every other
+        # failure in this server is reported to the MCP caller.
+        raise ValueError(f"could not write edited image to {output_path}: {e}") from e
+
+    metadata = {
+        "file_path": os.path.abspath(output_path),
+        "model": result.model,
+        "aspect_ratio": aspect_ratio,
+        "image_size": image_size,
+        "thinking_level": thinking_level,
+        "prompt": prompt,
+        "reference_count": result.reference_count,
+        "text_response": result.text_response,
+    }
+
+    image = Image(data=result.image_bytes, format="png")
+    return ToolResult(content=[image.to_image_content()], structured_content=metadata)
 
 
 if __name__ == "__main__":

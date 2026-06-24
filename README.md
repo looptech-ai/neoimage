@@ -16,6 +16,23 @@ Generate images using Google's Gemini / Imagen models. Defaults to **Nano Banana
 | `thinking_level` | `minimal` · `high` | none | NB2 only. Improves composition at the cost of latency. |
 | `output_path` | string | auto-generated | Full path e.g. `/tmp/my-image.png` |
 
+### `edit_image_gemini`
+Image-**to**-image editing with Gemini (Nano Banana 2). The image-to-image counterpart to `generate_image_gemini`: it takes one or more **reference images** as input so you can edit a single image, compose/fuse several, or keep a character consistent across renders. Unlike the generation tools, it **returns the edited image back to the caller as a viewable image** (not just a file path), closing the generate → see → edit loop.
+
+| Parameter | Options | Default | Notes |
+|---|---|---|---|
+| `prompt` | string | required | The edit/composition instruction |
+| `input_images` | list of paths | required | 1–14 reference images (PNG/JPEG/WebP/GIF). Use up to 5 of the same subject for character consistency |
+| `model` | `gemini-3.1-flash-image-preview` · `gemini-3-pro-image-preview` | `gemini-3.1-flash-image-preview` | |
+| `aspect_ratio` | same set as `generate_image_gemini` | `1:1` | |
+| `image_size` | `512px` · `1K` · `2K` · `4K` | model default | |
+| `thinking_level` | `minimal` · `high` | none | NB2 only |
+| `output_path` | string | auto-generated | The edited image is also saved here |
+
+```
+Edit /tmp/room.png: replace the sofa with a green velvet one, keep everything else.
+```
+
 ### `generate_image_openai`
 Generate images using OpenAI's GPT Image models.
 
