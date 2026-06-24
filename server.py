@@ -461,8 +461,13 @@ async def edit_image_gemini(
     if output_path is None:
         output_path = generate_output_path("gemini_edit", "png")
 
-    with open(output_path, "wb") as f:
-        f.write(result.image_bytes)
+    try:
+        with open(output_path, "wb") as f:
+            f.write(result.image_bytes)
+    except OSError as e:
+        # Surface disk errors as ValueError, consistent with how every other
+        # failure in this server is reported to the MCP caller.
+        raise ValueError(f"could not write edited image to {output_path}: {e}") from e
 
     metadata = {
         "file_path": os.path.abspath(output_path),

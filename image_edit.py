@@ -159,13 +159,15 @@ def parse_gemini_image_response(result: dict) -> tuple[bytes, str | None]:
         raise ValueError("no candidates returned from Gemini API")
 
     parts = candidates[0].get("content", {}).get("parts", [])
-    image_data: str | None = None
-    text_response: str | None = None
-    for part in parts:
-        if "inlineData" in part:
-            image_data = part["inlineData"]["data"]
-        elif "text" in part:
-            text_response = part["text"]
+    # Take the FIRST image/text part, not the last. Gemini can return multiple
+    # inlineData parts (multi-candidate / multi-turn); a last-wins loop would
+    # silently discard the earlier image.
+    image_data: str | None = next(
+        (p["inlineData"]["data"] for p in parts if "inlineData" in p), None
+    )
+    text_response: str | None = next(
+        (p["text"] for p in parts if "text" in p), None
+    )
 
     if not image_data:
         raise ValueError(

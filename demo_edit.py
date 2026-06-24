@@ -23,6 +23,7 @@ import json
 import os
 import sys
 import tempfile
+from unittest.mock import patch
 
 import httpx
 
@@ -111,13 +112,15 @@ async def main() -> None:
         with open(in_path, "wb") as f:
             f.write(PNG_1X1)
 
-        mock_client = httpx.AsyncClient(transport=httpx.MockTransport(gemini_mock_handler))
-        result = await image_edit.gemini_edit(
-            prompt="swap the background to a beach",
-            reference_paths=[in_path],
-            api_key="offline-test-key",
-            http_client=mock_client,
-        )
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(gemini_mock_handler)
+        ) as mock_client:
+            result = await image_edit.gemini_edit(
+                prompt="swap the background to a beach",
+                reference_paths=[in_path],
+                api_key="offline-test-key",
+                http_client=mock_client,
+            )
         check("model received the input image", captured_request["body"]
               ["contents"][0]["parts"][1].get("inlineData") is not None)
         check("edited bytes are the model output (not the input)", result.image_bytes == EDITED_PNG)
@@ -127,16 +130,19 @@ async def main() -> None:
     # --- Part C: closed visual loop through the real MCP tool -----------------
     print("Part C -- MCP tool returns a VIEWABLE image (closed loop):")
     # Inject the mock transport into the tool's HTTP factory so the real
-    # edit_image_gemini tool runs fully offline.
-    image_edit._make_client = lambda timeout: httpx.AsyncClient(
-        transport=httpx.MockTransport(gemini_mock_handler), timeout=timeout
-    )
-    os.environ["GOOGLE_API_KEY"] = "offline-test-key"
+    # edit_image_gemini tool runs fully offline. Scoped via context managers so
+    # neither the factory patch nor the fake API key leaks past this block.
+    def _mock_factory(timeout: float) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(gemini_mock_handler), timeout=timeout
+        )
 
     from fastmcp import Client
     import server
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, \
+            patch.object(image_edit, "_make_client", _mock_factory), \
+            patch.dict(os.environ, {"GOOGLE_API_KEY": "offline-test-key"}):
         in_path = os.path.join(tmp, "portrait.png")
         out_path = os.path.join(tmp, "edited.png")
         with open(in_path, "wb") as f:
